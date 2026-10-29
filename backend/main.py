@@ -1,8 +1,10 @@
 import base64
+import json
 import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
@@ -11,7 +13,6 @@ load_dotenv()
 
 app = FastAPI(title="Cinematic AI Color Engine Backend")
 
-# Allow frontend to call the backend locally
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,7 +21,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Google Gen AI client
 client = genai.Client()
 
 class ColorProfile(BaseModel):
@@ -39,6 +39,13 @@ class GradeResponse(BaseModel):
 class GradeRequest(BaseModel):
     image_base64: str
 
+FALLBACK_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash",
+]
+
 SYSTEM_PROMPT = """You are an elite Hollywood Digital Intermediate (DI) colorist. 
 Analyze the scene's key lighting, ambient color cast, dynamic range, and subject.
 Generate exactly 3 diverse, filmic, and tasteful color grades tailored strictly to this specific frame:
@@ -51,32 +58,100 @@ STRICT RULES:
 - Midtone values must strictly preserve natural human skin tones.
 - Subtlety creates cinematic elegance; aggressive saturation looks amateurish. Keep saturation near neutral (0.85 to 1.15)."""
 
+OFFLINE_BACKUP_PROFILES = GradeResponse(
+    profiles=[
+        ColorProfile(
+            title="Kodak 2383 Warm Narrative",
+            rationale="Gently lifts warm amber highlights and deepens shadows for an authentic Kodak Vision3 analog film print.",
+            slope=[1.08, 1.02, 0.94],
+            offset=[0.015, 0.0, -0.015],
+            power=[0.96, 0.98, 1.03],
+            shadow_tint_rgb=[0.54, 0.49, 0.43],
+            highlight_tint_rgb=[0.59, 0.53, 0.44],
+            saturation=1.04,
+        ),
+        ColorProfile(
+            title="David Fincher Neo-Noir",
+            rationale="Isolates deep teal/cyan into shadows while keeping skin midtones clean and neutral for a modern thriller look.",
+            slope=[0.95, 1.01, 1.07],
+            offset=[-0.02, 0.01, 0.03],
+            power=[1.03, 1.0, 0.97],
+            shadow_tint_rgb=[0.41, 0.52, 0.58],
+            highlight_tint_rgb=[0.53, 0.51, 0.49],
+            saturation=0.94,
+        ),
+        ColorProfile(
+            title="16mm Archival Indie",
+            rationale="Lifts the toe/black point to soften contrast and rolls off highlights for a faded 16mm indie film print.",
+            slope=[0.95, 0.95, 0.93],
+            offset=[0.03, 0.02, 0.015],
+            power=[0.94, 0.95, 0.96],
+            shadow_tint_rgb=[0.52, 0.50, 0.46],
+            highlight_tint_rgb=[0.54, 0.52, 0.48],
+            saturation=0.88,
+        ),
+    ]
+)
+
 @app.get("/api/health")
 async def health_check():
-    return {"status": "online", "model": "gemini-3.5-flash"}
+    return {"status": "online", "models": FALLBACK_MODELS}
 
-@app.post("/api/grade", response_model=GradeResponse)
+@app.post("/api/grade")
 async def grade_image(req: GradeRequest):
-    try:
-        # Strip potential data URL prefix
+    async def stream_progress():
         raw_b64 = req.image_base64.split(",")[-1]
         image_bytes = base64.b64decode(raw_b64)
 
-        response = client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                "Analyze scene lighting, contrast, and color balance. Output 3 bespoke cinematic color profiles."
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=GradeResponse,
-                temperature=0.2,
-            )
-        )
+        for model_name in FALLBACK_MODELS:
+            # 1. Inform client which model is being attempted
+            yield json.dumps({
+                "type": "attempting",
+                "model": model_name,
+                "message": f"Analyzing scene lighting with {model_name}..."
+            }) + "\n"
 
-        return GradeResponse.model_validate_json(response.text)
-    except Exception as e:
-        print(f"Error during grading: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+            try:
+                # Async call to Gemini
+                response = await client.aio.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                        "Analyze scene lighting, contrast, and color balance. Output 3 bespoke cinematic color profiles."
+                    ],
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        response_mime_type="application/json",
+                        response_schema=GradeResponse,
+                        temperature=0.2,
+                    )
+                )
+
+                result = GradeResponse.model_validate_json(response.text)
+                # 2. Inform client of success
+                yield json.dumps({
+                    "type": "success",
+                    "model": model_name,
+                    "profiles": [p.model_dump() for p in result.profiles]
+                }) + "\n"
+                return
+
+            except Exception as e:
+                err_str = str(e)
+                print(f"Model {model_name} error: {err_str}")
+                # 3. Inform client that fallback is kicking in
+                yield json.dumps({
+                    "type": "fallback",
+                    "model": model_name,
+                    "message": f"{model_name} high demand (503). Switching to fallback..."
+                }) + "\n"
+                continue
+
+        # 4. If all fail, use offline fallback
+        yield json.dumps({
+            "type": "success",
+            "model": "Offline DI Presets",
+            "profiles": [p.model_dump() for p in OFFLINE_BACKUP_PROFILES.profiles]
+        }) + "\n"
+
+    return StreamingResponse(stream_progress(), media_type="application/x-ndjson")

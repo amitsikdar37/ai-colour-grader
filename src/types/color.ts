@@ -1,10 +1,19 @@
 export interface ColorProfileUniforms {
-  slope: [number, number, number];           // Gain [0.8 to 1.2]
-  offset: [number, number, number];          // Lift [-0.05 to 0.05]
-  power: [number, number, number];           // Gamma [0.8 to 1.2]
-  shadow_tint_rgb: [number, number, number]; // Shadow bias [0.35 to 0.65]
-  highlight_tint_rgb: [number, number, number]; // Highlight bias [0.35 to 0.65]
-  saturation: number;                        // Global Saturation [0.7 to 1.3]
+  slope: [number, number, number];
+  offset: [number, number, number];
+  power: [number, number, number];
+  shadow_tint_rgb: [number, number, number];
+  highlight_tint_rgb: [number, number, number];
+  saturation: number;
+}
+
+export interface ColorProfile extends ColorProfileUniforms {
+  title: string;
+  rationale: string;
+}
+
+export interface GradeResponse {
+  profiles: ColorProfile[];
 }
 
 export const DEFAULT_UNIFORMS: ColorProfileUniforms = {
