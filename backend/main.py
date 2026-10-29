@@ -1,6 +1,8 @@
+import asyncio
 import base64
 import json
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +11,9 @@ from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 
-load_dotenv()
+# Always load .env relative to this file's directory
+env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 app = FastAPI(title="Cinematic AI Color Engine Backend")
 
@@ -39,11 +43,12 @@ class GradeResponse(BaseModel):
 class GradeRequest(BaseModel):
     image_base64: str
 
+# Fast, stable models first so requests finish in < 2s, followed by fallbacks
 FALLBACK_MODELS = [
-    "gemini-3.8-flash",
     "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
     "gemini-2.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
 ]
 
 SYSTEM_PROMPT = """You are an elite Hollywood Digital Intermediate (DI) colorist. 
@@ -104,7 +109,6 @@ async def grade_image(req: GradeRequest):
         image_bytes = base64.b64decode(raw_b64)
 
         for model_name in FALLBACK_MODELS:
-            # 1. Inform client which model is being attempted
             yield json.dumps({
                 "type": "attempting",
                 "model": model_name,
@@ -112,23 +116,26 @@ async def grade_image(req: GradeRequest):
             }) + "\n"
 
             try:
-                # Async call to Gemini
-                response = await client.aio.models.generate_content(
-                    model=model_name,
-                    contents=[
-                        types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-                        "Analyze scene lighting, contrast, and color balance. Output 3 bespoke cinematic color profiles."
-                    ],
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        response_mime_type="application/json",
-                        response_schema=GradeResponse,
-                        temperature=0.2,
-                    )
+                # Enforce a 20-second timeout to give complex models sufficient time
+                response = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model=model_name,
+                        contents=[
+                            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                            "Analyze scene lighting, contrast, and color balance. Output 3 bespoke cinematic color profiles."
+                        ],
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            response_mime_type="application/json",
+                            response_schema=GradeResponse,
+                            temperature=0.2,
+                        )
+                    ),
+                    timeout=20.0
                 )
 
                 result = GradeResponse.model_validate_json(response.text)
-                # 2. Inform client of success
+                print(f"Successfully graded with {model_name}!")
                 yield json.dumps({
                     "type": "success",
                     "model": model_name,
@@ -136,18 +143,27 @@ async def grade_image(req: GradeRequest):
                 }) + "\n"
                 return
 
-            except Exception as e:
-                err_str = str(e)
-                print(f"Model {model_name} error: {err_str}")
-                # 3. Inform client that fallback is kicking in
+            except asyncio.TimeoutError:
+                print(f"Model {model_name} timed out (>20s). Falling back...")
                 yield json.dumps({
                     "type": "fallback",
                     "model": model_name,
-                    "message": f"{model_name} high demand (503). Switching to fallback..."
+                    "message": f"{model_name} timed out (>20s). Switching to fallback..."
                 }) + "\n"
                 continue
 
-        # 4. If all fail, use offline fallback
+            except Exception as e:
+                err_str = str(e)
+                print(f"Model {model_name} error: {err_str}")
+                yield json.dumps({
+                    "type": "fallback",
+                    "model": model_name,
+                    "message": f"{model_name} busy. Switching to fallback..."
+                }) + "\n"
+                continue
+
+        # If all remote models fail, return offline backup profiles
+        print("All models failed. Emitting offline backup profiles.")
         yield json.dumps({
             "type": "success",
             "model": "Offline DI Presets",

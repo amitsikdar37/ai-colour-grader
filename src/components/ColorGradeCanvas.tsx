@@ -32,7 +32,7 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
             console.error("WebGL 1.0 not supported on this browser/device.");
             return;
         }
-        
+
         // Set sRGB color space if supported by browser
         if ("drawingBufferColorSpace" in gl) {
             (gl as any).drawingBufferColorSpace = "srgb";
@@ -79,11 +79,11 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
             gl.ARRAY_BUFFER,
             new Float32Array([
                 -1.0, -1.0,
-                1.0, -1.0,
-                -1.0, 1.0,
-                -1.0, 1.0,
-                1.0, -1.0,
-                1.0, 1.0,
+                 1.0, -1.0,
+                -1.0,  1.0,
+                -1.0,  1.0,
+                 1.0, -1.0,
+                 1.0,  1.0,
             ]),
             gl.STATIC_DRAW
         );
@@ -155,13 +155,11 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
         <canvas
             ref={canvasRef}
             style={{
-                width: "100%",
-                maxHeight: "70vh",
-                objectFit: "contain",
                 display: "block",
-                margin: "0 auto",
-                borderRadius: "8px",
-                boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
+                maxWidth: "100%",
+                maxHeight: "65vh",
+                width: "auto",
+                height: "auto",
             }}
         />
     );

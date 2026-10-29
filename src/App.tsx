@@ -51,31 +51,44 @@ export const App: React.FC = () => {
 
       let buffer = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        // Keep unfinished trailing line in buffer
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
+      const processLine = (line: string) => {
+        if (!line.trim()) return;
+        try {
           const event = JSON.parse(line);
 
           if (event.type === "attempting") {
-            setLoadingMsg(`Analyzing scene lighting...`);
+            setLoadingMsg("Analyzing scene lighting...");
             setLoadingSubMsg(`Model: ${event.model}`);
           } else if (event.type === "fallback") {
-            setLoadingMsg(`High demand detected.`);
+            setLoadingMsg("High demand detected.");
             setLoadingSubMsg(event.message);
           } else if (event.type === "success") {
-            setProfiles(event.profiles);
-            setSelectedIndex(0);
-            setUniforms(event.profiles[0]);
+            if (event.profiles && event.profiles.length > 0) {
+              setProfiles(event.profiles);
+              setSelectedIndex(0);
+              setUniforms(event.profiles[0]);
+            }
             setModelUsed(event.model);
+            setIsAnalyzing(false);
           }
+        } catch (e) {
+          console.warn("Could not parse stream chunk:", line, e);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (buffer.trim()) processLine(buffer);
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          processLine(line);
         }
       }
     } catch (err) {

@@ -23,17 +23,21 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
 }) => {
     const [splitPos, setSplitPos] = useState<number>(50);
     const [isDragging, setIsDragging] = useState<boolean>(false);
-    const containerRef = useRef<HTMLDivElement | null>(null);
+    const mediaRef = useRef<HTMLDivElement | null>(null);
 
     const handleMove = useCallback((clientX: number) => {
-        if (!containerRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
+        if (!mediaRef.current) return;
+        const rect = mediaRef.current.getBoundingClientRect();
         const x = clientX - rect.left;
         const percentage = Math.min(Math.max((x / rect.width) * 100, 0), 100);
         setSplitPos(percentage);
     }, []);
 
-    const handleMouseDown = () => setIsDragging(true);
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
     const handleMouseUp = () => setIsDragging(false);
 
     const handleMouseMove = (e: React.MouseEvent) => {
@@ -46,7 +50,6 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
 
     return (
         <div
-            ref={containerRef}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
@@ -63,13 +66,28 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                 alignItems: "center",
                 justifyContent: "center",
                 minHeight: "500px",
-                cursor: isDragging ? "ew-resize" : "default",
+                height: "65vh",
+                padding: "16px",
             }}
         >
             {image ? (
-                <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                /* Perfectly wraps the canvas size in both portrait and landscape */
+                <div
+                    ref={mediaRef}
+                    style={{
+                        position: "relative",
+                        display: "inline-block",
+                        lineHeight: 0,
+                        borderRadius: "8px",
+                        overflow: "hidden",
+                        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",
+                        cursor: isDragging ? "ew-resize" : "default",
+                    }}
+                >
+                    {/* 1. Underlying Graded WebGL Canvas */}
                     <ColorGradeCanvas image={image} uniforms={uniforms} intensity={intensity} />
 
+                    {/* 2. Overlaid Raw Original (Superimposed 1:1 on the Canvas) */}
                     {rawImageSrc && (
                         <img
                             src={rawImageSrc}
@@ -80,16 +98,17 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                                 left: 0,
                                 width: "100%",
                                 height: "100%",
-                                objectFit: "contain",
+                                display: "block",
                                 pointerEvents: "none",
                                 clipPath: `inset(0 ${100 - splitPos}% 0 0)`,
                             }}
                         />
                     )}
 
+                    {/* 3. Draggable Split Divider Line */}
                     <div
                         onMouseDown={handleMouseDown}
-                        onTouchStart={handleMouseDown}
+                        onTouchStart={() => setIsDragging(true)}
                         style={{
                             position: "absolute",
                             top: 0,
@@ -98,10 +117,11 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                             width: "2px",
                             backgroundColor: "#ffffff",
                             cursor: "ew-resize",
-                            boxShadow: "0 0 10px rgba(0, 0, 0, 0.7)",
+                            boxShadow: "0 0 10px rgba(0, 0, 0, 0.8)",
                             zIndex: 10,
                         }}
                     >
+                        {/* Center Handle Button */}
                         <div
                             style={{
                                 position: "absolute",
@@ -126,12 +146,14 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                         </div>
                     </div>
 
+                    {/* Corner Badges: Auto-fade when slider gets close so they never show on the wrong side */}
                     <span
                         style={{
                             position: "absolute",
-                            bottom: "16px",
-                            left: "16px",
-                            backgroundColor: "rgba(0, 0, 0, 0.65)",
+                            bottom: "12px",
+                            left: "12px",
+                            backgroundColor: "rgba(0, 0, 0, 0.75)",
+                            backdropFilter: "blur(4px)",
                             color: "#e2e8f0",
                             padding: "4px 8px",
                             borderRadius: "4px",
@@ -140,6 +162,9 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                             letterSpacing: "0.05em",
                             pointerEvents: "none",
                             zIndex: 5,
+                            opacity: splitPos > 18 ? 1 : 0,
+                            transform: `translateY(${splitPos > 18 ? "0px" : "4px"})`,
+                            transition: "all 0.2s ease",
                         }}
                     >
                         RAW ORIGINAL
@@ -147,9 +172,10 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                     <span
                         style={{
                             position: "absolute",
-                            bottom: "16px",
-                            right: "16px",
-                            backgroundColor: "rgba(14, 165, 233, 0.75)",
+                            bottom: "12px",
+                            right: "12px",
+                            backgroundColor: "rgba(14, 165, 233, 0.85)",
+                            backdropFilter: "blur(4px)",
                             color: "#ffffff",
                             padding: "4px 8px",
                             borderRadius: "4px",
@@ -158,6 +184,9 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                             letterSpacing: "0.05em",
                             pointerEvents: "none",
                             zIndex: 5,
+                            opacity: splitPos < 82 ? 1 : 0,
+                            transform: `translateY(${splitPos < 82 ? "0px" : "4px"})`,
+                            transition: "all 0.2s ease",
                         }}
                     >
                         CINEMATIC GRADE
