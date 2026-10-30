@@ -3,6 +3,7 @@ import { DropZone } from "./components/DropZone";
 import { SplitCompareViewer } from "./components/SplitCompareViewer";
 import { prepareAndAnalyzeImage, type ImageAnalysisResult } from "./utils/imageAnalysis";
 import { DEFAULT_UNIFORMS, type ColorProfile, type ColorProfileUniforms } from "./types/color";
+import { exportHighResImage } from "./utils/exportImage";
 
 export const App: React.FC = () => {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -20,6 +21,7 @@ export const App: React.FC = () => {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [uniforms, setUniforms] = useState<ColorProfileUniforms>(DEFAULT_UNIFORMS);
   const [intensity, setIntensity] = useState<number>(1.0);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
 
   const handleFileSelected = async (file: File) => {
     setIsAnalyzing(true);
@@ -36,8 +38,9 @@ export const App: React.FC = () => {
       setLoadingMsg("Connecting to Gemini Gateway...");
       setLoadingSubMsg("Initiating model fallback waterfall...");
 
-      // 2. Stream from FastAPI
-      const res = await fetch("http://localhost:8000/api/grade", {
+      // 2. Stream from FastAPI (using dynamic env var for deployment)
+      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const res = await fetch(`${API_BASE}/api/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_base64: result.previewBase64 }),
@@ -106,13 +109,28 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleExport = async () => {
+    if (!image) return;
+    setIsExporting(true);
+    try {
+      const activeLookTitle = profiles[selectedIndex]?.title || "custom_grade";
+      const cleanName = activeLookTitle.toLowerCase().replace(/[^a-z0-9]/g, "_");
+      await exportHighResImage(image, uniforms, intensity, `${cleanName}_fullres.jpg`);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Export failed. Please check browser console.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#0f172a", color: "#f8fafc", padding: "24px", fontFamily: "sans-serif" }}>
       <header style={{ maxWidth: "1280px", margin: "0 auto 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <h1 style={{ fontSize: "24px", fontWeight: "bold", margin: 0 }}>Cinematic AI Color Engine</h1>
           <p style={{ color: "#94a3b8", margin: "4px 0 0", fontSize: "14px" }}>
-            Day 4: Live Fallback Waterfall & Interactive Split Viewer
+            Production Engine: 60 FPS WebGL · Multimodal Gemini · 4K Full-Resolution Export
           </p>
         </div>
         {modelUsed && (
@@ -235,6 +253,36 @@ export const App: React.FC = () => {
               Blends non-destructively between Raw (0%) and Graded (100%).
             </p>
           </div>
+
+          {/* Full-Resolution GPU Export Button */}
+          <button
+            onClick={handleExport}
+            disabled={!image || isExporting}
+            style={{
+              width: "100%",
+              marginTop: "20px",
+              padding: "14px",
+              backgroundColor: !image || isExporting ? "#334155" : "#0284c7",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "8px",
+              fontWeight: "bold",
+              fontSize: "14px",
+              cursor: !image || isExporting ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              boxShadow: !image || isExporting ? "none" : "0 4px 14px rgba(2, 132, 199, 0.4)",
+              transition: "all 0.2s ease",
+            }}
+          >
+            {isExporting ? (
+              <span>⚡ Rendering Full-Res GPU Frame...</span>
+            ) : (
+              <span>💾 Export Graded Photo (Full-Res)</span>
+            )}
+          </button>
         </div>
       </main>
     </div>
