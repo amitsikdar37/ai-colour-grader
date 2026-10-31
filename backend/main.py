@@ -62,24 +62,28 @@ def extract_image_scopes(image_bytes: bytes) -> str:
 
     # 2. Achromatic Surface White-Balance Detection:
     # Filter for midtones (0.20 < luma < 0.80) that are near-neutral (low chroma)
-    # so large green hedges or fluorescent yellow walls don't corrupt the ambient cast estimation
+    # using a dynamic 30th percentile capped strictly at 0.10
+    # so large green hedges or fluorescent yellow walls are never mistaken for neutral references
     chroma_approx = np.max(arr, axis=2) - np.min(arr, axis=2)
-    achromatic_mid_mask = (luma > 0.20) & (luma < 0.80) & (chroma_approx < 0.28)
+    mid_mask = (luma > 0.20) & (luma < 0.80)
 
-    if np.sum(achromatic_mid_mask) > 100:
-        mr = float(arr[:, :, 0][achromatic_mid_mask].mean())
-        mg = float(arr[:, :, 1][achromatic_mid_mask].mean())
-        mb = float(arr[:, :, 2][achromatic_mid_mask].mean())
-    else:
-        mid_mask = (luma > 0.20) & (luma < 0.75)
-        if np.any(mid_mask):
+    if np.any(mid_mask):
+        chroma_mid = chroma_approx[mid_mask]
+        neutral_threshold = min(float(np.percentile(chroma_mid, 30)), 0.10)
+        achromatic_mid_mask = mid_mask & (chroma_approx <= neutral_threshold)
+
+        if np.sum(achromatic_mid_mask) > 50:
+            mr = float(arr[:, :, 0][achromatic_mid_mask].mean())
+            mg = float(arr[:, :, 1][achromatic_mid_mask].mean())
+            mb = float(arr[:, :, 2][achromatic_mid_mask].mean())
+        else:
             mr = float(arr[:, :, 0][mid_mask].mean())
             mg = float(arr[:, :, 1][mid_mask].mean())
             mb = float(arr[:, :, 2][mid_mask].mean())
-        else:
-            mr = float(arr[:, :, 0].mean())
-            mg = float(arr[:, :, 1].mean())
-            mb = float(arr[:, :, 2].mean())
+    else:
+        mr = float(arr[:, :, 0].mean())
+        mg = float(arr[:, :, 1].mean())
+        mb = float(arr[:, :, 2].mean())
 
     return (
         f"EXACT DIGITAL SCOPES TELEMETRY:\n"

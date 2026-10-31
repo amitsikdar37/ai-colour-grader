@@ -88,6 +88,10 @@ export const FRAGMENT_SHADER_SOURCE = `
 
     // 1. Primary ASC-CDL with Adaptive Toe Guard
     float rawLuma = dot(linear, vec3(0.2126, 0.7152, 0.0722));
+    // Pre-CDL chroma for neutral surface detection (untainted by CDL slope shifts)
+    vec3 origLab = linearToOklab(linear);
+    float origChroma = sqrt(max(origLab.y * origLab.y + origLab.z * origLab.z, 0.0));
+
     // Positive offset is gated near 0.0 so black skies stay black; negative offset can anchor hazy shadows
     vec3 safeOffset = mix(min(u_offset, vec3(0.0)), u_offset, smoothstep(0.0, 0.03, rawLuma));
     vec3 cdl = max(linear * u_slope + safeOffset, vec3(0.0));
@@ -100,8 +104,9 @@ export const FRAGMENT_SHADER_SOURCE = `
     vec3 lab = linearToOklab(cdl);
     float L = lab.x;
     float chroma = sqrt(max(lab.y * lab.y + lab.z * lab.z, 0.0));
-    // Safe atan: Prevents NaN on mobile Adreno/Mali GPUs when chroma is 0
-    float hue = chroma > 0.0001 ? atan(lab.z, lab.y) : 0.0;
+    // Bulletproof GLSL 1.00 Guard: safeY guarantees non-zero argument even if mobile compilers evaluate both ternary branches
+    float safeY = abs(lab.y) < 0.0001 ? 0.0001 : lab.y;
+    float hue = chroma > 0.0001 ? atan(lab.z, safeY) : 0.0;
 
     // 3. Human Skin Vector Protection (Centered around ~0.88 rad in Oklab)
     float isSkinHue = 1.0 - smoothstep(0.16, 0.44, abs(hue - 0.88));
@@ -130,8 +135,9 @@ export const FRAGMENT_SHADER_SOURCE = `
     // Highlight zone: 0.48 to 0.96 L. Specular cores (>0.96) roll off to white.
     float hMask = smoothstep(0.48, 0.66, L) * (1.0 - smoothstep(0.86, 0.96, L));
 
-    // Full-Range Achromatic Shield: Protects neutral white shirts AND neutral gray couches / concrete
-    float achromaticShield = 1.0 - smoothstep(0.008, 0.035, chroma);
+    // Full-Range Achromatic Shield: Protects neutral white shirts AND neutral gray midtones (couches, concrete)
+    // Gated above the shadow zone (L > 0.24) so deep shadow split-toning (e.g. teal shadows) remains 100% active!
+    float achromaticShield = (1.0 - smoothstep(0.008, 0.035, min(origChroma, chroma))) * smoothstep(0.24, 0.42, L);
     float shadowProtect = 1.0 - max(skinMask * 0.90, achromaticShield * 0.70);
     float highProtect = 1.0 - max(skinMask * 0.75, achromaticShield * 0.85);
 
