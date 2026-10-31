@@ -79,7 +79,7 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                     }}
                 >
                     {/* 1. Underlying Graded WebGL Canvas */}
-                    <ColorGradeCanvas image={image} uniforms={uniforms} intensity={intensity} />
+                    <ColorGradeCanvas key={rawImageSrc || "empty"} image={image} uniforms={uniforms} intensity={intensity} />
 
                     {/* 2. Overlaid Raw Original (Superimposed 1:1 on the Canvas) */}
                     {rawImageSrc && (

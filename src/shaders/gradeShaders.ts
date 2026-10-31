@@ -8,7 +8,12 @@ export const VERTEX_SHADER_SOURCE = `
 `;
 
 export const FRAGMENT_SHADER_SOURCE = `
-  precision highp float;
+  #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+  #else
+    precision mediump float;
+  #endif
+
   varying vec2 v_texCoord;
   uniform sampler2D u_image;
 
@@ -106,9 +111,9 @@ export const FRAGMENT_SHADER_SOURCE = `
     // 4. Kodak 2383 Oklch Hue Convergence (3D LUT Emulation)
     // Shifts acidic digital green-yellows toward golden amber, and harsh royal blues toward cinema teal
     float yDelta = (hue - 1.75) / 0.45;
-    float yellowBand = exp(-(yDelta * yDelta));
+    float yellowBand = exp(-clamp(yDelta * yDelta, 0.0, 25.0));
     float bDelta = (hue + 1.65) / 0.50;
-    float blueBand = exp(-(bDelta * bDelta));
+    float blueBand = exp(-clamp(bDelta * bDelta, 0.0, 25.0));
     float hueShift = (-0.10 * yellowBand - 0.12 * blueBand) * (1.0 - skinMask);
     float convergedHue = hue + hueShift;
     lab.y = chroma * cos(convergedHue);
@@ -162,11 +167,12 @@ export const FRAGMENT_SHADER_SOURCE = `
     vec3 gradedLinear = clamp(oklabToLinear(lab), 0.0, 1.0);
     vec3 finalRgb = mix(raw.rgb, linearTosRGB(gradedLinear), u_intensity);
 
-    // Procedural monochrome film grain (focused on midtones, tapered off in speculars & pure black)
-    float grainHash = fract(sin(dot(v_texCoord * 1000.0, vec2(12.9898, 78.233))) * 43758.5453);
+    // Procedural monochrome film grain (overflow-proof on all mobile 16-bit/32-bit GPUs)
+    float grainHash = fract(sin(clamp(dot(v_texCoord, vec2(12.9898, 78.233)), -100.0, 100.0)) * 437.5854);
     float midtoneGrainWeight = smoothstep(0.05, 0.25, lab.x) * (1.0 - smoothstep(0.75, 0.98, lab.x));
-    vec3 grainOffset = vec3((grainHash - 0.5) * 0.018 * midtoneGrainWeight * u_intensity);
+    vec3 grainOffset = vec3((grainHash - 0.5) * 0.016 * midtoneGrainWeight * u_intensity);
 
-    gl_FragColor = vec4(clamp(finalRgb + grainOffset, 0.0, 1.0), raw.a);
+    vec3 safeFinal = clamp(finalRgb + grainOffset, 0.0, 1.0);
+    gl_FragColor = vec4(safeFinal, raw.a);
   }
 `;

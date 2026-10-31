@@ -16,17 +16,15 @@ export async function exportHighResImage(
     canvas.width = image.naturalWidth;
     canvas.height = image.naturalHeight;
 
-    // 2. Initialize sRGB WebGL context with preserveDrawingBuffer enabled
-    const gl = canvas.getContext("webgl", {
-        preserveDrawingBuffer: true,
-    }) as WebGLRenderingContext | null;
+    // 2. Initialize WebGL context with preserveDrawingBuffer enabled
+    const gl = (
+        canvas.getContext("webgl2", { preserveDrawingBuffer: true, alpha: false }) ||
+        canvas.getContext("webgl", { preserveDrawingBuffer: true, alpha: false }) ||
+        canvas.getContext("experimental-webgl", { preserveDrawingBuffer: true, alpha: false })
+    ) as WebGLRenderingContext | null;
 
     if (!gl) {
         throw new Error("Unable to initialize WebGL export pipeline");
-    }
-
-    if ("drawingBufferColorSpace" in gl) {
-        (gl as any).drawingBufferColorSpace = "srgb";
     }
 
     // 3. Compile Shaders
@@ -68,12 +66,16 @@ export async function exportHighResImage(
     // 5. Ingest Full-Resolution Texture
     gl.viewport(0, 0, image.naturalWidth, image.naturalHeight);
     const texture = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+    const uImg = gl.getUniformLocation(program, "u_image");
+    if (uImg) gl.uniform1i(uImg, 0);
 
     // 6. Push Safe Uniforms
     gl.uniform3fv(gl.getUniformLocation(program, "u_slope"), safeUniforms.slope);

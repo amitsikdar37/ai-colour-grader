@@ -94,6 +94,7 @@ export const App: React.FC = () => {
     setLoadingMsg("Optimizing image payload...");
     setLoadingSubMsg("Downscaling & extracting histogram...");
     handleResetTrims();
+    setProfiles([]); // Reset previous image looks immediately
 
     try {
       // 1. Client-Side Pre-processing

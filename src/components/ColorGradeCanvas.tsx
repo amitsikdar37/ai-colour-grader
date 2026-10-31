@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import { type ColorProfileUniforms, DEFAULT_UNIFORMS } from "../types/color";
 import { VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE } from "../shaders/gradeShaders";
 
@@ -18,28 +18,69 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
     const programRef = useRef<WebGLProgram | null>(null);
     const textureRef = useRef<WebGLTexture | null>(null);
 
-    // 1. Initialize WebGL Context, Shaders, and Screen Quad Buffer (ONCE)
+    // Shared draw function: Updates uniform registers and renders quad
+    const draw = useCallback(() => {
+        const gl = glRef.current;
+        const program = programRef.current;
+        const texture = textureRef.current;
+        const canvas = canvasRef.current;
+        if (!gl || !program || !texture || !canvas) return;
+
+        gl.useProgram(program);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        // Bind active texture unit 0
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        const uImgLoc = gl.getUniformLocation(program, "u_image");
+        if (uImgLoc) {
+            gl.uniform1i(uImgLoc, 0);
+        }
+
+        const u = uniforms || DEFAULT_UNIFORMS;
+
+        gl.uniform3fv(gl.getUniformLocation(program, "u_slope"), u.slope);
+        gl.uniform3fv(gl.getUniformLocation(program, "u_offset"), u.offset);
+        gl.uniform3fv(gl.getUniformLocation(program, "u_power"), u.power);
+        gl.uniform3fv(gl.getUniformLocation(program, "u_shadowTint"), u.shadow_tint_rgb);
+        gl.uniform3fv(gl.getUniformLocation(program, "u_highTint"), u.highlight_tint_rgb);
+        gl.uniform1f(gl.getUniformLocation(program, "u_saturation"), u.saturation);
+        gl.uniform1f(gl.getUniformLocation(program, "u_intensity"), intensity);
+
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }, [uniforms, intensity]);
+
+    // 1. Initialize WebGL Context and Program (ONCE on mount)
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        // Must enable preserveDrawingBuffer for file exports, and enforce sRGB
-        const gl = canvas.getContext("webgl", {
+        const handleContextLost = (e: Event) => {
+            e.preventDefault();
+            console.warn("WebGL context lost on device. Waiting for restoration...");
+        };
+        canvas.addEventListener("webglcontextlost", handleContextLost, false);
+
+        const ctxOptions: WebGLContextAttributes = {
             preserveDrawingBuffer: true,
-        }) as WebGLRenderingContext | null;
+            alpha: false,
+            antialias: false,
+            powerPreference: "high-performance",
+        };
+
+        const gl = (
+            canvas.getContext("webgl2", ctxOptions) ||
+            canvas.getContext("webgl", ctxOptions) ||
+            canvas.getContext("experimental-webgl", ctxOptions)
+        ) as WebGLRenderingContext | null;
 
         if (!gl) {
-            console.error("WebGL 1.0 not supported on this browser/device.");
+            console.error("WebGL is not supported on this device/browser.");
             return;
         }
 
-        // Set sRGB color space if supported by browser
-        if ("drawingBufferColorSpace" in gl) {
-            (gl as any).drawingBufferColorSpace = "srgb";
-        }
         glRef.current = gl;
 
-        // Helper: Compile individual shader stage
         const compileShader = (type: number, source: string): WebGLShader | null => {
             const shader = gl.createShader(type);
             if (!shader) return null;
@@ -72,7 +113,6 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
         }
         programRef.current = program;
 
-        // Create 2D Fullscreen Quad Buffer (2 triangles = 6 vertices covering [-1, 1])
         const positionBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         gl.bufferData(
@@ -92,66 +132,79 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
         gl.enableVertexAttribArray(aPos);
         gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
-        // Create texture object
         const texture = gl.createTexture();
         textureRef.current = texture;
 
-        // Clean up WebGL resources when component unmounts
         return () => {
+            canvas.removeEventListener("webglcontextlost", handleContextLost);
             if (texture) gl.deleteTexture(texture);
             if (positionBuffer) gl.deleteBuffer(positionBuffer);
             if (program) gl.deleteProgram(program);
         };
     }, []);
 
-    // 2. Texture Ingestion (ONLY when the image changes)
+    // 2. Ingest Texture immediately whenever 'image' changes
     useEffect(() => {
         const gl = glRef.current;
         const texture = textureRef.current;
         const canvas = canvasRef.current;
         if (!gl || !texture || !canvas || !image) return;
 
-        // Match canvas buffer dimensions to original image resolution
-        canvas.width = image.naturalWidth;
-        canvas.height = image.naturalHeight;
-        gl.viewport(0, 0, image.naturalWidth, image.naturalHeight);
+        const maxHardwareTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 2048;
+        const maxDisplayDim = Math.min(maxHardwareTex, 2048);
 
+        let dispW = image.naturalWidth || 1920;
+        let dispH = image.naturalHeight || 1080;
+
+        if (dispW > maxDisplayDim || dispH > maxDisplayDim) {
+            if (dispW > dispH) {
+                dispH = Math.round((dispH * maxDisplayDim) / dispW);
+                dispW = maxDisplayDim;
+            } else {
+                dispW = Math.round((dispW * maxDisplayDim) / dispH);
+                dispH = maxDisplayDim;
+            }
+        }
+
+        canvas.width = dispW;
+        canvas.height = dispH;
+        gl.viewport(0, 0, dispW, dispH);
+
+        // Clear previous frame pixels immediately so stale image is removed
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, texture);
 
-        // Essential NPOT (Non-Power-Of-Two) texture parameters for WebGL 1.0
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-        // Upload image data to GPU VRAM
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-    }, [image]);
+        if (dispW !== image.naturalWidth || dispH !== image.naturalHeight) {
+            const offscreen = document.createElement("canvas");
+            offscreen.width = dispW;
+            offscreen.height = dispH;
+            const ctx = offscreen.getContext("2d");
+            if (ctx) {
+                ctx.drawImage(image, 0, 0, dispW, dispH);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, offscreen);
+            } else {
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+            }
+        } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        }
 
-    // 3. Render Loop: Update Uniforms and Draw (Runs at 60 FPS on slider tweak)
+        // Instantly render new texture to canvas
+        draw();
+    }, [image, draw]);
+
+    // 3. Render Loop when uniforms or intensity tweak
     useEffect(() => {
-        const gl = glRef.current;
-        const program = programRef.current;
-        const canvas = canvasRef.current;
-        if (!gl || !program || !canvas || !image) return;
-
-        gl.useProgram(program);
-        gl.viewport(0, 0, canvas.width, canvas.height);
-
-        const u = uniforms || DEFAULT_UNIFORMS;
-
-        // Push uniform vectors to GPU registers
-        gl.uniform3fv(gl.getUniformLocation(program, "u_slope"), u.slope);
-        gl.uniform3fv(gl.getUniformLocation(program, "u_offset"), u.offset);
-        gl.uniform3fv(gl.getUniformLocation(program, "u_power"), u.power);
-        gl.uniform3fv(gl.getUniformLocation(program, "u_shadowTint"), u.shadow_tint_rgb);
-        gl.uniform3fv(gl.getUniformLocation(program, "u_highTint"), u.highlight_tint_rgb);
-        gl.uniform1f(gl.getUniformLocation(program, "u_saturation"), u.saturation);
-        gl.uniform1f(gl.getUniformLocation(program, "u_intensity"), intensity);
-
-        // Draw the 6 vertices forming the screen quad
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-    }, [image, uniforms, intensity]);
+        draw();
+    }, [draw]);
 
     return (
         <canvas
