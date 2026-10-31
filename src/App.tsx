@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { DropZone } from "./components/DropZone";
 import { SplitCompareViewer } from "./components/SplitCompareViewer";
+import { ApiKeyModal } from "./components/ApiKeyModal";
 import { prepareAndAnalyzeImage, type ImageAnalysisResult } from "./utils/imageAnalysis";
 import { DEFAULT_UNIFORMS, type ColorProfile, type ColorProfileUniforms } from "./types/color";
 import { exportHighResImage } from "./utils/exportImage";
@@ -19,6 +20,30 @@ export const App: React.FC = () => {
   // AI Looks State
   const [profiles, setProfiles] = useState<ColorProfile[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
+
+  // User Gemini API Key (Bring Your Own Key)
+  const [apiKey, setApiKey] = useState<string>(() => {
+    return localStorage.getItem("gemini_api_key") || "";
+  });
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(() => {
+    const savedKey = localStorage.getItem("gemini_api_key");
+    const dismissed = localStorage.getItem("gemini_key_prompt_dismissed");
+    return !savedKey && !dismissed;
+  });
+
+  const handleSaveApiKey = (key: string) => {
+    setApiKey(key);
+    if (key) {
+      localStorage.setItem("gemini_api_key", key);
+      localStorage.removeItem("gemini_key_prompt_dismissed");
+    } else {
+      localStorage.removeItem("gemini_api_key");
+    }
+  };
+
+  const handleUsePresets = () => {
+    localStorage.setItem("gemini_key_prompt_dismissed", "true");
+  };
 
   // Director Quick Trim Sliders (Non-Destructive Final 10%)
   const [exposureTrim, setExposureTrim] = useState<number>(0.0);     // -0.20 to +0.20
@@ -84,7 +109,10 @@ export const App: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_base64: result.previewBase64 }),
+        body: JSON.stringify({
+          image_base64: result.previewBase64,
+          api_key: apiKey.trim() || null,
+        }),
       });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -163,18 +191,42 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#0f172a", color: "#f8fafc", padding: "16px 24px 32px", fontFamily: "sans-serif" }}>
-      <header style={{ maxWidth: "1280px", margin: "0 auto 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+      <header style={{ maxWidth: "1280px", margin: "0 auto 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
         <div>
           <h1 style={{ fontSize: "22px", fontWeight: "bold", margin: 0 }}>Cinematic AI Color Engine</h1>
           <p style={{ color: "#94a3b8", margin: "2px 0 0", fontSize: "13px" }}>
             Production Engine: 60 FPS WebGL · Multimodal Gemini · 4K Full-Resolution Export
           </p>
         </div>
-        {modelUsed && (
-          <div style={{ backgroundColor: "#1e293b", padding: "4px 12px", borderRadius: "20px", border: "1px solid #38bdf8", fontSize: "12px", color: "#38bdf8" }}>
-            ⚡ Graded by: <strong>{modelUsed}</strong>
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {modelUsed && (
+            <div style={{ backgroundColor: "#1e293b", padding: "4px 12px", borderRadius: "20px", border: "1px solid #38bdf8", fontSize: "12px", color: "#38bdf8" }}>
+              ⚡ Graded by: <strong>{modelUsed}</strong>
+            </div>
+          )}
+          <button
+            onClick={() => setIsKeyModalOpen(true)}
+            style={{
+              backgroundColor: apiKey ? "rgba(34, 197, 94, 0.12)" : "rgba(56, 189, 248, 0.12)",
+              border: `1px solid ${apiKey ? "rgba(34, 197, 94, 0.4)" : "rgba(56, 189, 248, 0.4)"}`,
+              color: apiKey ? "#4ade80" : "#38bdf8",
+              padding: "6px 14px",
+              borderRadius: "20px",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "all 0.15s ease",
+            }}
+            title={apiKey ? "Personal Gemini API Key is Active · Click to Manage" : "Connect Free Gemini API Key for Live AI Grading"}
+          >
+            <span>{apiKey ? "🟢" : "🔑"}</span>
+            <span>{apiKey ? "Gemini Key Connected" : "Connect Free Gemini Key"}</span>
+            <span style={{ fontSize: "10px", opacity: 0.8 }}>({apiKey ? "Manage" : "Free"})</span>
+          </button>
+        </div>
       </header>
 
       <main className="grader-main-grid">
@@ -413,6 +465,15 @@ export const App: React.FC = () => {
           </button>
         </div>
       </main>
+
+      {/* Bring Your Own Key (BYOK) Modal with friendly step-by-step guide for non-tech users */}
+      <ApiKeyModal
+        isOpen={isKeyModalOpen}
+        onClose={() => setIsKeyModalOpen(false)}
+        currentKey={apiKey}
+        onSaveKey={handleSaveApiKey}
+        onUsePresets={handleUsePresets}
+      />
     </div>
   );
 };

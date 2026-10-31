@@ -28,8 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = genai.Client()
-
 class ColorProfile(BaseModel):
     title: str = Field(description="Name of the look (e.g., 'Warm Narrative 35mm')")
     rationale: str = Field(description="Why this grade fits the scene composition and lighting")
@@ -45,6 +43,7 @@ class GradeResponse(BaseModel):
 
 class GradeRequest(BaseModel):
     image_base64: str
+    api_key: str | None = None
 
 # Fast, reliable Flash models verified live against user API key
 FALLBACK_MODELS = [
@@ -152,10 +151,38 @@ async def health_check():
 @app.post("/api/grade")
 async def grade_image(req: GradeRequest):
     async def stream_progress():
+        user_key = (req.api_key or "").strip()
+
+        # If user did not provide an API key, protect host wallet and return offline presets immediately
+        if not user_key:
+            print("No user API key provided. Returning instant built-in presets (Zero host API cost).")
+            yield json.dumps({
+                "type": "success",
+                "model": "Built-in DI Presets",
+                "profiles": [p.model_dump() for p in OFFLINE_BACKUP_PROFILES.profiles]
+            }) + "\n"
+            return
+
         raw_b64 = req.image_base64.split(",")[-1]
         image_bytes = base64.b64decode(raw_b64)
         scopes_report = extract_image_scopes(image_bytes)
-        print(scopes_report)
+
+        # Initialize GenAI Client using the user's personal API key
+        try:
+            user_client = genai.Client(api_key=user_key)
+        except Exception as e:
+            print(f"Error creating client with user key: {e}")
+            yield json.dumps({
+                "type": "fallback",
+                "model": "Key Error",
+                "message": "Invalid API key format. Falling back to built-in presets..."
+            }) + "\n"
+            yield json.dumps({
+                "type": "success",
+                "model": "Built-in DI Presets",
+                "profiles": [p.model_dump() for p in OFFLINE_BACKUP_PROFILES.profiles]
+            }) + "\n"
+            return
 
         for model_name in FALLBACK_MODELS:
             yield json.dumps({
@@ -167,9 +194,9 @@ async def grade_image(req: GradeRequest):
             try:
                 # Enforce a 20-second timeout to give complex models sufficient time
                 response = await asyncio.wait_for(
-                    client.aio.models.generate_content(
+                    user_client.aio.models.generate_content(
                         model=model_name,
-                       contents=[
+                        contents=[
                             types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
                             f"{scopes_report}\n\nBased on these exact scopes and the visual scene, output 3 bespoke cinematic color profiles."
                         ],
@@ -184,7 +211,7 @@ async def grade_image(req: GradeRequest):
                 )
 
                 result = GradeResponse.model_validate_json(response.text)
-                print(f"Successfully graded with {model_name}!")
+                print(f"Successfully graded with {model_name} using user key!")
                 yield json.dumps({
                     "type": "success",
                     "model": model_name,
@@ -211,11 +238,11 @@ async def grade_image(req: GradeRequest):
                 }) + "\n"
                 continue
 
-        # If all remote models fail, return offline backup profiles
+        # If all remote models fail with the user's key, return offline backup profiles
         print("All models failed. Emitting offline backup profiles.")
         yield json.dumps({
             "type": "success",
-            "model": "Offline DI Presets",
+            "model": "Built-in DI Presets",
             "profiles": [p.model_dump() for p in OFFLINE_BACKUP_PROFILES.profiles]
         }) + "\n"
 
