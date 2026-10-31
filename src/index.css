@@ -18,6 +18,36 @@ body {
   width: 100%;
 }
 
+.app-container {
+  min-height: 100vh;
+  background-color: #0f172a;
+  color: #f8fafc;
+  padding: 16px 24px 32px;
+  font-family: sans-serif;
+}
+
+.app-header {
+  max-width: 1280px;
+  margin: 0 auto 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.app-title {
+  font-size: 22px;
+  font-weight: bold;
+  margin: 0;
+}
+
+.app-subtitle {
+  color: #94a3b8;
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
 .grader-main-grid {
   display: grid;
   grid-template-columns: 1fr 380px;
@@ -26,18 +56,53 @@ body {
   margin: 0 auto;
 }
 
-@media (max-width: 1024px) {
-  .grader-main-grid {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
+/* Split Compare Viewer Responsive Containers */
+.split-viewer-outer {
+  position: relative;
+  user-select: none;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: #020617;
+  border: 1px solid #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 14px;
+  height: 63vh;
+  min-height: 460px;
+  --viewer-h: 63vh;
+  --viewer-min-h: 460px;
+  --viewer-pad: 28px;
 }
 
+.split-viewer-inner {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
+/* Desktop vs Mobile Toggle */
+.desktop-only-controls {
+  display: block;
+}
+
+.desktop-only-deck {
+  display: block;
+}
+
+.mobile-only-suite {
+  display: none;
+}
+
+/* Range Inputs */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  height: 6px;
-  border-radius: 3px;
+  height: 7px;
+  border-radius: 4px;
   background: #334155;
   outline: none;
 }
@@ -45,12 +110,12 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: #38bdf8;
   cursor: pointer;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
   transition: transform 0.1s ease;
 }
 
@@ -59,11 +124,245 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: #38bdf8;
   cursor: pointer;
   border: none;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
 }
+
+/* ========================================================
+   MOBILE DEVICE VIEWPORT STYLES (<= 768px)
+   ======================================================== */
+@media (max-width: 768px) {
+  .app-container {
+    padding: 10px 12px 28px;
+  }
+
+  .app-header {
+    margin-bottom: 12px;
+    gap: 8px;
+  }
+
+  .app-title {
+    font-size: 18px;
+  }
+
+  .app-subtitle {
+    font-size: 11px;
+    opacity: 0.85;
+  }
+
+  .grader-main-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* Responsive image viewer: fits aspect ratio tightly, NO giant black voids */
+  .split-viewer-outer {
+    height: auto;
+    min-height: 0;
+    max-height: 48vh;
+    padding: 6px;
+    border-radius: 10px;
+    --viewer-h: 46vh;
+    --viewer-min-h: 0px;
+    --viewer-pad: 12px;
+  }
+
+  /* Hide desktop-only elements on mobile */
+  .desktop-only-controls {
+    display: none !important;
+  }
+
+  .desktop-only-deck {
+    display: none !important;
+  }
+
+  /* Show dedicated mobile editing suite */
+  .mobile-only-suite {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+
+  /* 1. Mobile Instant Preset Strip */
+  .mobile-preset-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    background-color: #0b1329;
+    border-radius: 10px;
+    padding: 5px;
+    border: 1px solid #1e293b;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+  }
+
+  .mobile-preset-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 10px 4px;
+    background: #1e293b;
+    border: 1.5px solid #334155;
+    border-radius: 8px;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+    user-select: none;
+  }
+
+  .mobile-preset-chip.active {
+    background: rgba(56, 189, 248, 0.16);
+    border-color: #38bdf8;
+    color: #f8fafc;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.3);
+  }
+
+  .mobile-preset-chip-num {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    color: #38bdf8;
+  }
+
+  .mobile-preset-chip-title {
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .mobile-preset-active-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background-color: #38bdf8;
+    box-shadow: 0 0 6px #38bdf8;
+  }
+
+  /* 2. Mobile Studio Tabs */
+  .mobile-view-tabs {
+    display: flex;
+    background-color: #0b1329;
+    border-radius: 8px;
+    padding: 3px;
+    border: 1px solid #1e293b;
+    gap: 4px;
+  }
+
+  .mobile-view-tab-btn {
+    flex: 1;
+    padding: 9px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    background: transparent;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+  }
+
+  .mobile-view-tab-btn.active {
+    background: #1e293b;
+    color: #38bdf8;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+
+  /* 3. Mobile High-End Sliders Deck */
+  .mobile-trims-card {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  }
+
+  .mobile-trim-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mobile-trim-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+
+  .mobile-trim-label {
+    color: #cbd5e1;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .mobile-trim-value {
+    color: #38bdf8;
+    font-weight: 700;
+    font-family: monospace;
+    font-size: 12px;
+    background: #0f172a;
+    padding: 2px 8px;
+    border-radius: 5px;
+    border: 1px solid #334155;
+  }
+
+  /* 4. Mobile Look Story & Telemetry Card */
+  .mobile-story-card {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  }
+
+  /* 5. Mobile Full-Res Export Button */
+  .mobile-export-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 4px 16px rgba(2, 132, 199, 0.35);
+    transition: all 0.15s ease;
+  }
+
+  .mobile-export-btn:disabled {
+    background: #334155;
+    color: #94a3b8;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+}
+

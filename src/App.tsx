@@ -20,6 +20,7 @@ export const App: React.FC = () => {
   // AI Looks State
   const [profiles, setProfiles] = useState<ColorProfile[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [mobileTab, setMobileTab] = useState<"trims" | "story">("trims");
 
   // User Gemini API Key (Bring Your Own Key)
   const [apiKey, setApiKey] = useState<string>(() => {
@@ -190,11 +191,11 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#0f172a", color: "#f8fafc", padding: "16px 24px 32px", fontFamily: "sans-serif" }}>
-      <header style={{ maxWidth: "1280px", margin: "0 auto 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+    <div className="app-container">
+      <header className="app-header">
         <div>
-          <h1 style={{ fontSize: "22px", fontWeight: "bold", margin: 0 }}>Cinematic AI Color Engine</h1>
-          <p style={{ color: "#94a3b8", margin: "2px 0 0", fontSize: "13px" }}>
+          <h1 className="app-title">Cinematic AI Color Engine</h1>
+          <p className="app-subtitle">
             Production Engine: 60 FPS WebGL · Multimodal Gemini · 4K Full-Resolution Export
           </p>
         </div>
@@ -244,9 +245,210 @@ export const App: React.FC = () => {
             loadingSubMessage={loadingSubMsg}
           />
 
-          {/* Director Trim Controls (Docked directly beneath image for instant visual feedback) */}
-          <div style={{ backgroundColor: "#1e293b", borderRadius: "10px", padding: "14px 18px", border: "1px solid #334155" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+          {/* ========================================================
+              MOBILE DEDICATED SUITE (<= 768px)
+              Directly beneath the image for simultaneous visual preview
+             ======================================================== */}
+          <div className="mobile-only-suite">
+            {profiles.length > 0 && (
+              <>
+                {/* 1. Mobile Instant Preset Strip (Tap & see image change above!) */}
+                <div className="mobile-preset-strip">
+                  {profiles.map((p, idx) => {
+                    const isSelected = selectedIndex === idx;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => handleSelectLook(idx)}
+                        className={`mobile-preset-chip ${isSelected ? "active" : ""}`}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <span className="mobile-preset-chip-num">0{idx + 1}</span>
+                          {isSelected && <span className="mobile-preset-active-dot" />}
+                        </div>
+                        <span className="mobile-preset-chip-title">{p.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 2. Mobile Studio Segmented View Tabs */}
+                <div className="mobile-view-tabs">
+                  <button
+                    onClick={() => setMobileTab("trims")}
+                    className={`mobile-view-tab-btn ${mobileTab === "trims" ? "active" : ""}`}
+                  >
+                    <span>🎚️ Pro Trims</span>
+                    {hasTrims && <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#38bdf8" }} />}
+                  </button>
+                  <button
+                    onClick={() => setMobileTab("story")}
+                    className={`mobile-view-tab-btn ${mobileTab === "story" ? "active" : ""}`}
+                  >
+                    <span>📜 Look Story & Scopes</span>
+                  </button>
+                </div>
+
+                {/* 3A. Mobile High-End Sliders Deck */}
+                {mobileTab === "trims" ? (
+                  <div className="mobile-trims-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: "#f8fafc", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Director Trim Controls
+                      </span>
+                      {hasTrims && (
+                        <button
+                          onClick={handleResetTrims}
+                          style={{
+                            background: "rgba(56, 189, 248, 0.12)",
+                            border: "1px solid rgba(56, 189, 248, 0.4)",
+                            color: "#38bdf8",
+                            fontSize: "11px",
+                            cursor: "pointer",
+                            padding: "3px 8px",
+                            borderRadius: "4px",
+                            fontWeight: 600,
+                          }}
+                        >
+                          ↺ Reset Trims
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Exposure */}
+                    <div className="mobile-trim-row">
+                      <div className="mobile-trim-header">
+                        <span className="mobile-trim-label">☀️ Exposure (Gain)</span>
+                        <span className="mobile-trim-value">
+                          {exposureTrim > 0 ? "+" : ""}{(exposureTrim * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={-0.20}
+                        max={0.20}
+                        step={0.01}
+                        value={exposureTrim}
+                        onChange={(e) => setExposureTrim(parseFloat(e.target.value))}
+                        style={{ width: "100%", accentColor: "#38bdf8" }}
+                      />
+                    </div>
+
+                    {/* Shadow Lift */}
+                    <div className="mobile-trim-row">
+                      <div className="mobile-trim-header">
+                        <span className="mobile-trim-label">🌑 Shadow Lift (Offset)</span>
+                        <span className="mobile-trim-value">
+                          {shadowLiftTrim > 0 ? "+" : ""}{shadowLiftTrim.toFixed(3)}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={-0.06}
+                        max={0.06}
+                        step={0.005}
+                        value={shadowLiftTrim}
+                        onChange={(e) => setShadowLiftTrim(parseFloat(e.target.value))}
+                        style={{ width: "100%", accentColor: "#38bdf8" }}
+                      />
+                    </div>
+
+                    {/* Temperature */}
+                    <div className="mobile-trim-row">
+                      <div className="mobile-trim-header">
+                        <span className="mobile-trim-label">🌡️ Temperature Bias</span>
+                        <span className="mobile-trim-value">
+                          {tempTrim > 0 ? `Warm +${tempTrim.toFixed(2)}` : tempTrim < 0 ? `Cool ${tempTrim.toFixed(2)}` : "Neutral"}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={-0.15}
+                        max={0.15}
+                        step={0.01}
+                        value={tempTrim}
+                        onChange={(e) => setTempTrim(parseFloat(e.target.value))}
+                        style={{ width: "100%", accentColor: "#38bdf8" }}
+                      />
+                    </div>
+
+                    {/* Master Look Intensity */}
+                    <div className="mobile-trim-row">
+                      <div className="mobile-trim-header">
+                        <span className="mobile-trim-label">⚡ Master Look Intensity</span>
+                        <span className="mobile-trim-value">{(intensity * 100).toFixed(0)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={intensity}
+                        onChange={(e) => setIntensity(parseFloat(e.target.value))}
+                        style={{ width: "100%", accentColor: "#38bdf8" }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  /* 3B. Mobile Look Story & Scopes */
+                  <div className="mobile-story-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                      <strong style={{ color: "#38bdf8", fontSize: "14px" }}>
+                        {profiles[selectedIndex]?.title}
+                      </strong>
+                      <span style={{ fontSize: "10px", backgroundColor: "#38bdf8", color: "#0f172a", padding: "2px 7px", borderRadius: "4px", fontWeight: 700 }}>
+                        ACTIVE
+                      </span>
+                    </div>
+                    <p style={{ margin: "0 0 10px", fontSize: "12px", color: "#cbd5e1", lineHeight: 1.45 }}>
+                      {profiles[selectedIndex]?.rationale}
+                    </p>
+
+                    {analysis && (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px", fontSize: "11px" }}>
+                        <div style={telemetryCard}>
+                          <span style={{ color: "#94a3b8" }}>Dynamic Range</span>
+                          <strong>{(analysis.dynamicRangeRatio * 100).toFixed(0)}%</strong>
+                        </div>
+                        <div style={telemetryCard}>
+                          <span style={{ color: "#94a3b8" }}>Exposure</span>
+                          <strong style={{ color: analysis.isUnderexposed ? "#f87171" : "#4ade80" }}>
+                            {analysis.isUnderexposed ? "Underexposed" : "Balanced"}
+                          </strong>
+                        </div>
+                        <div style={telemetryCard}>
+                          <span style={{ color: "#94a3b8" }}>Ambient Cast</span>
+                          <strong style={{ textTransform: "capitalize", color: "#38bdf8" }}>
+                            {analysis.ambientCast.dominantCast}
+                          </strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 4. Full-Res Export Button on Mobile */}
+                <button
+                  onClick={handleExport}
+                  disabled={!image || isExporting}
+                  className="mobile-export-btn"
+                >
+                  {isExporting ? (
+                    <span>⚡ Rendering Full-Res GPU Frame...</span>
+                  ) : (
+                    <span>💾 Export Graded Photo (Full-Res)</span>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* ========================================================
+              DESKTOP ONLY CONTROLS (> 768px)
+             ======================================================== */}
+          <div className="desktop-only-controls">
+            <div style={{ backgroundColor: "#1e293b", borderRadius: "10px", padding: "14px 18px", border: "1px solid #334155" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span style={{ fontSize: "12px", fontWeight: 700, color: "#f8fafc", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   Director Trim Controls
@@ -382,10 +584,11 @@ export const App: React.FC = () => {
               </div>
             </div>
           )}
+          </div>
         </div>
 
-        {/* Right Column: AI Look Selector Deck (Full-Sized & Fully Readable) */}
-        <div style={{ backgroundColor: "#1e293b", padding: "20px", borderRadius: "12px", border: "1px solid #334155", height: "fit-content" }}>
+        {/* Right Column: AI Look Selector Deck (Full-Sized & Fully Readable on Desktop) */}
+        <div className="desktop-only-deck" style={{ backgroundColor: "#1e293b", padding: "20px", borderRadius: "12px", border: "1px solid #334155", height: "fit-content" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #334155", paddingBottom: "10px" }}>
             <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, letterSpacing: "0.02em" }}>
               AI Art Director Looks

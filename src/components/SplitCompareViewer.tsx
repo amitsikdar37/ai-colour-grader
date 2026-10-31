@@ -54,36 +54,23 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
 
     return (
         <div
+            className="split-viewer-outer"
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleMouseUp}
-            style={{
-                position: "relative",
-                userSelect: "none",
-                overflow: "hidden",
-                borderRadius: "12px",
-                backgroundColor: "#020617",
-                border: "1px solid #1e293b",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                minHeight: "460px",
-                height: "63vh",
-                padding: "14px",
-                boxSizing: "border-box",
-            }}
         >
             {image ? (
                 /* Perfectly wraps the canvas size in both portrait and landscape */
                 <div
                     ref={mediaRef}
+                    className="split-viewer-inner"
                     style={{
                         position: "relative",
                         width: "100%",
-                        maxWidth: `min(100%, calc((max(63vh, 460px) - 28px) * ${imgAspect}))`,
-                        maxHeight: "calc(max(63vh, 460px) - 28px)",
+                        maxWidth: `min(100%, calc((max(var(--viewer-h, 63vh), var(--viewer-min-h, 460px)) - var(--viewer-pad, 28px)) * ${imgAspect}))`,
+                        maxHeight: `calc(max(var(--viewer-h, 63vh), var(--viewer-min-h, 460px)) - var(--viewer-pad, 28px))`,
                         aspectRatio: `${image.naturalWidth} / ${image.naturalHeight}`,
                         borderRadius: "8px",
                         overflow: "hidden",
