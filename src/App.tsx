@@ -4,6 +4,7 @@ import { SplitCompareViewer } from "./components/SplitCompareViewer";
 import { ApiKeyModal } from "./components/ApiKeyModal";
 import { prepareAndAnalyzeImage, type ImageAnalysisResult } from "./utils/imageAnalysis";
 import { DEFAULT_UNIFORMS, type ColorProfile, type ColorProfileUniforms } from "./types/color";
+import { sanitizeUniforms } from "./utils/clampUniforms";
 import { exportHighResImage } from "./utils/exportImage";
 
 export const App: React.FC = () => {
@@ -32,11 +33,97 @@ export const App: React.FC = () => {
     return !savedKey && !dismissed;
   });
 
+  const runGradingStream = async (base64Payload: string, activeKey: string) => {
+    setIsAnalyzing(true);
+    setLoadingMsg("Connecting to Gemini Gateway...");
+    setLoadingSubMsg("Initiating model fallback waterfall...");
+
+    try {
+      // 2. Stream from FastAPI (relative in production/Docker, localhost:8000 in dev)
+      const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
+      const res = await fetch(`${API_BASE}/api/grade`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_base64: base64Payload,
+          api_key: activeKey.trim() || null,
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("Stream reader not supported");
+
+      let buffer = "";
+
+      const processLine = (line: string) => {
+        if (!line.trim()) return;
+        try {
+          const event = JSON.parse(line);
+
+          if (event.type === "attempting") {
+            setLoadingMsg("Analyzing scene lighting...");
+            setLoadingSubMsg(`Model: ${event.model}`);
+          } else if (event.type === "fallback") {
+            setLoadingMsg("High demand detected.");
+            setLoadingSubMsg(event.message);
+          } else if (event.type === "auth_error") {
+            setApiKey("");
+            localStorage.removeItem("gemini_api_key");
+            setIsKeyModalOpen(true);
+            alert(event.message || "Invalid Gemini API Key. Please verify your key from Google AI Studio.");
+            setIsAnalyzing(false);
+          } else if (event.type === "success") {
+            if (event.profiles && event.profiles.length > 0) {
+              const sanitized = event.profiles.map((p: ColorProfile) => ({
+                ...p,
+                ...sanitizeUniforms(p),
+              }));
+              setProfiles(sanitized);
+              setSelectedIndex(0);
+            }
+            setModelUsed(event.model);
+            setIsAnalyzing(false);
+          }
+        } catch (e) {
+          console.warn("Could not parse stream chunk:", line, e);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (buffer.trim()) processLine(buffer);
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          processLine(line);
+        }
+      }
+    } catch (err) {
+      console.error("Grading failed:", err);
+      alert("AI grading error. Check backend connection.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleSaveApiKey = (key: string) => {
     setApiKey(key);
     if (key) {
       localStorage.setItem("gemini_api_key", key);
       localStorage.removeItem("gemini_key_prompt_dismissed");
+      // Immediately re-grade the active image with the new key!
+      if (rawImageSrc) {
+        runGradingStream(rawImageSrc, key);
+      }
     } else {
       localStorage.removeItem("gemini_api_key");
     }
@@ -55,7 +142,8 @@ export const App: React.FC = () => {
 
   // Combine Base AI Uniforms with User's Non-Destructive Trims
   const activeUniforms = useMemo((): ColorProfileUniforms => {
-    const base = profiles[selectedIndex] || DEFAULT_UNIFORMS;
+    const rawBase = profiles[selectedIndex] || DEFAULT_UNIFORMS;
+    const base = sanitizeUniforms(rawBase);
 
     const expFactor = 1.0 + exposureTrim;
     const rTempFactor = 1.0 + tempTrim * 0.5;
@@ -103,71 +191,11 @@ export const App: React.FC = () => {
       setImage(result.originalImage);
       setRawImageSrc(result.previewBase64);
 
-      setLoadingMsg("Connecting to Gemini Gateway...");
-      setLoadingSubMsg("Initiating model fallback waterfall...");
-
-      // 2. Stream from FastAPI (relative in production/Docker, localhost:8000 in dev)
-      const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "http://localhost:8000" : "");
-      const res = await fetch(`${API_BASE}/api/grade`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image_base64: result.previewBase64,
-          api_key: apiKey.trim() || null,
-        }),
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) throw new Error("Stream reader not supported");
-
-      let buffer = "";
-
-      const processLine = (line: string) => {
-        if (!line.trim()) return;
-        try {
-          const event = JSON.parse(line);
-
-          if (event.type === "attempting") {
-            setLoadingMsg("Analyzing scene lighting...");
-            setLoadingSubMsg(`Model: ${event.model}`);
-          } else if (event.type === "fallback") {
-            setLoadingMsg("High demand detected.");
-            setLoadingSubMsg(event.message);
-          } else if (event.type === "success") {
-            if (event.profiles && event.profiles.length > 0) {
-              setProfiles(event.profiles);
-              setSelectedIndex(0);
-            }
-            setModelUsed(event.model);
-            setIsAnalyzing(false);
-          }
-        } catch (e) {
-          console.warn("Could not parse stream chunk:", line, e);
-        }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          if (buffer.trim()) processLine(buffer);
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          processLine(line);
-        }
-      }
+      // 2. Stream from FastAPI
+      await runGradingStream(result.previewBase64, apiKey);
     } catch (err) {
       console.error("Grading failed:", err);
-      alert("AI grading error. Check backend console.");
-    } finally {
+      alert("Image analysis failed.");
       setIsAnalyzing(false);
     }
   };

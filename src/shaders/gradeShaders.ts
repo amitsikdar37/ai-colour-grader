@@ -99,8 +99,9 @@ export const FRAGMENT_SHADER_SOURCE = `
     // 2. Convert to Oklab & Polar Oklch
     vec3 lab = linearToOklab(cdl);
     float L = lab.x;
-    float chroma = sqrt(lab.y * lab.y + lab.z * lab.z);
-    float hue = atan(lab.z, lab.y);
+    float chroma = sqrt(max(lab.y * lab.y + lab.z * lab.z, 0.0));
+    // Safe atan: Prevents NaN on mobile Adreno/Mali GPUs when chroma is 0
+    float hue = chroma > 0.0001 ? atan(lab.z, lab.y) : 0.0;
 
     // 3. Human Skin Vector Protection (Centered around ~0.88 rad in Oklab)
     float isSkinHue = 1.0 - smoothstep(0.16, 0.44, abs(hue - 0.88));
@@ -129,10 +130,10 @@ export const FRAGMENT_SHADER_SOURCE = `
     // Highlight zone: 0.48 to 0.96 L. Specular cores (>0.96) roll off to white.
     float hMask = smoothstep(0.48, 0.66, L) * (1.0 - smoothstep(0.86, 0.96, L));
 
-    // Neutral White Guard: Prevents white shirts & white floor tiles (high L, very low chroma) from getting dyed
-    float isNeutralWhite = (1.0 - smoothstep(0.01, 0.035, chroma)) * smoothstep(0.68, 0.85, L);
-    float shadowProtect = 1.0 - (skinMask * 0.90);
-    float highProtect = (1.0 - skinMask * 0.75) * (1.0 - isNeutralWhite * 0.75);
+    // Full-Range Achromatic Shield: Protects neutral white shirts AND neutral gray couches / concrete
+    float achromaticShield = 1.0 - smoothstep(0.008, 0.035, chroma);
+    float shadowProtect = 1.0 - max(skinMask * 0.90, achromaticShield * 0.70);
+    float highProtect = 1.0 - max(skinMask * 0.75, achromaticShield * 0.85);
 
     lab.y += (sTintLab.y * sMask * shadowProtect + hTintLab.y * hMask * highProtect) * 0.95;
     lab.z += (sTintLab.z * sMask * shadowProtect + hTintLab.z * hMask * highProtect) * 0.95;
@@ -142,7 +143,7 @@ export const FRAGMENT_SHADER_SOURCE = `
     lab.y *= satMult;
     lab.z *= satMult;
 
-    float newChroma = sqrt(lab.y * lab.y + lab.z * lab.z);
+    float newChroma = sqrt(max(lab.y * lab.y + lab.z * lab.z, 0.0));
     if (newChroma > 0.13) {
       float compressed = 0.13 + (newChroma - 0.13) / (1.0 + (newChroma - 0.13) * 5.0);
       float scale = compressed / max(newChroma, 0.0001);
@@ -173,6 +174,6 @@ export const FRAGMENT_SHADER_SOURCE = `
     vec3 grainOffset = vec3((grainHash - 0.5) * 0.016 * midtoneGrainWeight * u_intensity);
 
     vec3 safeFinal = clamp(finalRgb + grainOffset, 0.0, 1.0);
-    gl_FragColor = vec4(safeFinal, raw.a);
+    gl_FragColor = vec4(safeFinal, 1.0);
   }
 `;

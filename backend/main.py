@@ -60,16 +60,26 @@ def extract_image_scopes(image_bytes: bytes) -> str:
     luma = 0.2126 * arr[:, :, 0] + 0.7152 * arr[:, :, 1] + 0.0722 * arr[:, :, 2]
     p2, p50, p98 = np.percentile(luma, [2, 50, 98])
 
-    # 2. Extract Midtone RGB (Luma between 0.20 and 0.75)
-    mid_mask = (luma > 0.20) & (luma < 0.75)
-    if np.any(mid_mask):
-        mr = float(arr[:, :, 0][mid_mask].mean())
-        mg = float(arr[:, :, 1][mid_mask].mean())
-        mb = float(arr[:, :, 2][mid_mask].mean())
+    # 2. Achromatic Surface White-Balance Detection:
+    # Filter for midtones (0.20 < luma < 0.80) that are near-neutral (low chroma)
+    # so large green hedges or fluorescent yellow walls don't corrupt the ambient cast estimation
+    chroma_approx = np.max(arr, axis=2) - np.min(arr, axis=2)
+    achromatic_mid_mask = (luma > 0.20) & (luma < 0.80) & (chroma_approx < 0.28)
+
+    if np.sum(achromatic_mid_mask) > 100:
+        mr = float(arr[:, :, 0][achromatic_mid_mask].mean())
+        mg = float(arr[:, :, 1][achromatic_mid_mask].mean())
+        mb = float(arr[:, :, 2][achromatic_mid_mask].mean())
     else:
-        mr = float(arr[:, :, 0].mean())
-        mg = float(arr[:, :, 1].mean())
-        mb = float(arr[:, :, 2].mean())
+        mid_mask = (luma > 0.20) & (luma < 0.75)
+        if np.any(mid_mask):
+            mr = float(arr[:, :, 0][mid_mask].mean())
+            mg = float(arr[:, :, 1][mid_mask].mean())
+            mb = float(arr[:, :, 2][mid_mask].mean())
+        else:
+            mr = float(arr[:, :, 0].mean())
+            mg = float(arr[:, :, 1].mean())
+            mb = float(arr[:, :, 2].mean())
 
     return (
         f"EXACT DIGITAL SCOPES TELEMETRY:\n"
@@ -173,14 +183,8 @@ async def grade_image(req: GradeRequest):
         except Exception as e:
             print(f"Error creating client with user key: {e}")
             yield json.dumps({
-                "type": "fallback",
-                "model": "Key Error",
-                "message": "Invalid API key format. Falling back to built-in presets..."
-            }) + "\n"
-            yield json.dumps({
-                "type": "success",
-                "model": "Built-in DI Presets",
-                "profiles": [p.model_dump() for p in OFFLINE_BACKUP_PROFILES.profiles]
+                "type": "auth_error",
+                "message": "Invalid API key format. Please verify your key from Google AI Studio."
             }) + "\n"
             return
 
@@ -231,6 +235,13 @@ async def grade_image(req: GradeRequest):
             except Exception as e:
                 err_str = str(e)
                 print(f"Model {model_name} error: {err_str}")
+                # Immediate breakout for invalid keys or authentication rejections
+                if any(k in err_str for k in ["API_KEY_INVALID", "API key not valid", "PERMISSION_DENIED", "400", "401", "403"]):
+                    yield json.dumps({
+                        "type": "auth_error",
+                        "message": "Invalid Gemini API Key. Please verify your key in Google AI Studio."
+                    }) + "\n"
+                    return
                 yield json.dumps({
                     "type": "fallback",
                     "model": model_name,
