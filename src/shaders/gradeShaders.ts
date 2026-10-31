@@ -84,7 +84,7 @@ export const FRAGMENT_SHADER_SOURCE = `
     // 1. Primary ASC-CDL with Adaptive Toe Guard
     float rawLuma = dot(linear, vec3(0.2126, 0.7152, 0.0722));
     // Positive offset is gated near 0.0 so black skies stay black; negative offset can anchor hazy shadows
-    vec3 safeOffset = mix(min(u_offset, vec3(0.0)), u_offset, smoothstep(0.0, 0.08, rawLuma));
+    vec3 safeOffset = mix(min(u_offset, vec3(0.0)), u_offset, smoothstep(0.0, 0.03, rawLuma));
     vec3 cdl = max(linear * u_slope + safeOffset, vec3(0.0));
     cdl = pow(max(cdl, vec3(0.00001)), u_power);
 

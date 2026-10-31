@@ -46,12 +46,11 @@ class GradeResponse(BaseModel):
 class GradeRequest(BaseModel):
     image_base64: str
 
-# Fast, stable models first so requests finish in < 2s, followed by fallbacks
+# Fast, reliable Flash models verified live against user API key
 FALLBACK_MODELS = [
-    "gemini-3.5-flash",
     "gemini-2.5-flash",
+    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-3.8-flash",
 ]
 
 def extract_image_scopes(image_bytes: bytes) -> str:
@@ -61,7 +60,6 @@ def extract_image_scopes(image_bytes: bytes) -> str:
     # 1. Luminance & Dynamic Range Percentiles
     luma = 0.2126 * arr[:, :, 0] + 0.7152 * arr[:, :, 1] + 0.0722 * arr[:, :, 2]
     p2, p50, p98 = np.percentile(luma, [2, 50, 98])
-    dynamic_range_span = (p98 - p2) * 100.0
 
     # 2. Extract Midtone RGB (Luma between 0.20 and 0.75)
     mid_mask = (luma > 0.20) & (luma < 0.75)
@@ -74,53 +72,43 @@ def extract_image_scopes(image_bytes: bytes) -> str:
         mg = float(arr[:, :, 1].mean())
         mb = float(arr[:, :, 2].mean())
 
-    # 3. Continuous Chromaticity Ratios (Zero Hardcoded Cutoffs)
-    # R/B ratio represents Color Temperature (Kelvin scale):
-    # > 1.0 = Warm / Tungsten | < 1.0 = Cool / Daylight
-    rb_ratio = mr / max(mb, 0.001)
-
-    # Green Tint Index (Green vs Magenta balance):
-    # > 1.05 = Fluorescent Green bias | < 0.95 = Magenta bias
-    green_index = mg / max((mr + mb) * 0.5, 0.001)
-
-    # 4. Deep Black & Specular White Analysis
-    black_floor_status = "Crushed/Deep (keep offset >= 0.0)" if p2 < 0.03 else "Hazy/Lifted (use negative offset to anchor)"
-    white_headroom = "Blown highlights" if p98 > 0.96 else "Clean highlight headroom"
-
     return (
         f"EXACT DIGITAL SCOPES TELEMETRY:\n"
-        f"- Dynamic Range Span: {dynamic_range_span:.1f}% (P2 Black: {p2:.3f}, P50 Median: {p50:.3f}, P98 White: {p98:.3f})\n"
+        f"- Dynamic Range Span: {(p98 - p2) * 100:.1f}% (P2 Black: {p2:.3f}, P50 Median: {p50:.3f}, P98 White: {p98:.3f})\n"
         f"- Midtone Absolute RGB: R={mr:.3f}, G={mg:.3f}, B={mb:.3f}\n"
-        f"- Warmth Ratio (R/B): {rb_ratio:.2f} (1.00 = Neutral. Higher = Warmer ambient cast, Lower = Cooler ambient cast)\n"
-        f"- Green/Magenta Tint Ratio: {green_index:.2f} (1.00 = Balanced. >1.05 = Greenish cast)\n"
-        f"- Tonal Characteristics: {black_floor_status} | {white_headroom}\n\n"
-        f"COLORIST DIRECTIVE:\n"
-        f"Calculate `slope` inversely proportional to the Warmth Ratio (R/B): "
-        f"If R/B is high (e.g. 1.35), cool down the slope (decrease Red slope, elevate Blue slope). "
-        f"If R/B is low (e.g. 0.85), warm up the slope to protect natural skin tones. "
-        f"If P2 < 0.03, set `offset` between -0.005 and 0.005 so night skies remain ink-black."
+        f"- Warmth Ratio (R/B): {mr / max(mb, 1e-4):.2f} (1.00 = Neutral)\n"
+        f"- Green/Magenta Ratio: {mg / max((mr + mb) * 0.5, 1e-4):.2f} (1.00 = Balanced)\n"
     )
 
 SYSTEM_PROMPT = """You are an elite Hollywood Digital Intermediate (DI) colorist.
-You are provided with an image AND its exact digital scope telemetry (Black Point, Median Luma, Midtone RGB Ratios, and Detected Color Cast).
+You receive an image and its EXACT DIGITAL SCOPES TELEMETRY.
+You must output 3 VISUALLY DISTINCT cinematic color profiles. NEVER output identical or near-identical parameters across profiles, and NEVER output [0.5, 0.5, 0.5] for split-toning.
 
-CRITICAL COLORIST RULES:
-1. PRIMARY WHITE BALANCE FIRST (Using `slope` and `power`):
-   - Look at the SCOPES TELEMETRY.
-   - If the image has a HEAVY WARM/YELLOW CAST (e.g. night streetlamps, festival lights), DO NOT increase Red/Green slope! Set `slope` to cool down the excess yellow (e.g. `[0.94, 0.98, 1.08]`) so whites recover and colors separate.
-   - If the image has a COOL/CYAN INDOOR CAST (e.g. fluorescent walls, indoor portraits), warm up the midtones using `slope` (e.g. `[1.06, 1.00, 0.93]`) and `power` (`[0.95, 1.0, 1.04]`) so human skin looks healthy and warm, never gray or green.
-    - If Dynamic Range > 85% OR (P2 < 0.04 and P98 > 0.85) (high-contrast or backlit window scene like a train, car, or direct sunlight), set `power` between [0.88, 0.95] to lift shadow detail, recover hair/fabric textures, and soften harsh side-lighting contrast.
-   - If the image is hazy, milky, or flat (low contrast), set `power` between [1.02, 1.15] to snap punchy contrast into the midtones.
-2. BLACK FLOOR CONTROL (Using `offset`):
-   - If Black Point < 0.03, keep `offset` between `-0.005` and `0.005` so night skies stay ink-black.
-   - If Black Point > 0.08 (washed-out haze), use slightly negative `offset` (`-0.02`) to anchor blacks.
-3. SPLIT-TONING SUBTLETY:
-   - Keep `shadow_tint_rgb` and `highlight_tint_rgb` tightly near neutral (`[0.44 to 0.56]`). Let color contrast come from clean primary balance, not heavy color overlays.
+MATHEMATICAL CONTRACT FOR EACH PROFILE:
 
-Generate 3 distinct, studio-grade looks tailored to this frame's telemetry:
-1. Natural Cinema (Clean white-balanced correction, rich Kodak Vision3 contrast, natural skin).
-2. Complementary Contrast (Cool teal shadow separation against warm natural subjects).
-3. Soft Archival Film (Gentle contrast, subtle highlight warmth, restrained saturation)."""
+1. PROFILE 1: "Natural 35mm Print" (Clean White Balance & Crisp Contrast)
+   - `slope`: Neutralize the scene's Warmth Ratio (R/B). If R/B > 1.25 (warm cast), cool down slope (e.g. Red < 0.95, Blue > 1.06). If R/B < 0.90 (cool cast), warm up slope (Red > 1.05, Blue < 0.95).
+   - `power`: Set between [1.02, 1.08] to give crisp 35mm midtone snap (unless P50 < 0.22, then use [0.94, 0.98]).
+   - `offset`: Keep tight to [-0.01, 0.005] for clean black floors.
+   - `shadow_tint_rgb`: Subtle cool-neutral shadow depth (e.g. [0.44, 0.49, 0.55]).
+   - `highlight_tint_rgb`: Subtle warm print highlight (e.g. [0.56, 0.52, 0.45]).
+   - `saturation`: [1.02 to 1.08].
+
+2. PROFILE 2: "Complementary Teal & Amber" (High-Contrast Genre Split)
+   - `slope`: Keep closer to balanced/warm highlights (do NOT over-cool the highlights—let the warmth live in the highlights while cooling the shadows).
+   - `power`: MUST be high ([1.08 to 1.16]) to trigger strong S-curve contrast and deep midtone density, with per-channel color separation (e.g. [1.06, 1.10, 1.14]).
+   - `offset`: Negative black crush ([-0.025 to -0.010]) to carve out dramatic shadow contrast.
+   - `shadow_tint_rgb`: MUST push strong cyan/teal into shadows (Red: 0.32–0.38, Green: 0.50–0.54, Blue: 0.62–0.68).
+   - `highlight_tint_rgb`: MUST push rich golden amber into highlights (Red: 0.60–0.68, Green: 0.53–0.56, Blue: 0.35–0.42).
+   - `saturation`: [1.10 to 1.18].
+
+3. PROFILE 3: "Vintage Golden Archival" (Lifted Matte Blacks, Soft Contrast, Warm Nostalgia)
+   - `slope`: Lean INTO warmth—even if the scene is already warm, keep Red >= 1.02 and Blue <= 0.96 for a rich golden-hour / 1970s analog feel.
+   - `power`: MUST be low ([0.85 to 0.92]) to open up shadows and create a soft, low-contrast archival curve.
+   - `offset`: MUST be positive ([+0.015 to +0.030]) to lift the black floor into a soft matte film toe.
+   - `shadow_tint_rgb`: Warm olive/bronze shadow base (e.g. [0.55, 0.52, 0.42]).
+   - `highlight_tint_rgb`: Creamy warm highlight roll-off (e.g. [0.62, 0.56, 0.44]).
+   - `saturation`: Muted archival chroma ([0.85 to 0.92])."""
 
 OFFLINE_BACKUP_PROFILES = GradeResponse(
     profiles=[

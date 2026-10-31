@@ -23,11 +23,11 @@ export function sanitizeUniforms(raw: Partial<ColorProfileUniforms> | null | und
     if (!raw) return DEFAULT_UNIFORMS;
 
     return {
-        slope: clampVector3(raw.slope, 0.80, 1.20, DEFAULT_UNIFORMS.slope),
-        offset: clampVector3(raw.offset, -0.04, 0.04, DEFAULT_UNIFORMS.offset),
-        power: clampVector3(raw.power, 0.80, 1.22, DEFAULT_UNIFORMS.power),
-        shadow_tint_rgb: clampVector3(raw.shadow_tint_rgb, 0.28, 0.72, DEFAULT_UNIFORMS.shadow_tint_rgb),
-        highlight_tint_rgb: clampVector3(raw.highlight_tint_rgb, 0.28, 0.72, DEFAULT_UNIFORMS.highlight_tint_rgb),
-        saturation: clamp(raw.saturation ?? 1.0, 0.75, 1.25),
+        slope: clampVector3(raw.slope, 0.65, 1.45, DEFAULT_UNIFORMS.slope),
+        offset: clampVector3(raw.offset, -0.09, 0.09, DEFAULT_UNIFORMS.offset),
+        power: clampVector3(raw.power, 0.75, 1.25, DEFAULT_UNIFORMS.power),
+        shadow_tint_rgb: clampVector3(raw.shadow_tint_rgb, 0.20, 0.80, DEFAULT_UNIFORMS.shadow_tint_rgb),
+        highlight_tint_rgb: clampVector3(raw.highlight_tint_rgb, 0.20, 0.80, DEFAULT_UNIFORMS.highlight_tint_rgb),
+        saturation: clamp(raw.saturation ?? 1.0, 0.60, 1.40),
     };
 }
