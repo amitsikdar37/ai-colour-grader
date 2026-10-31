@@ -104,8 +104,8 @@ export const App: React.FC = () => {
       setLoadingMsg("Connecting to Gemini Gateway...");
       setLoadingSubMsg("Initiating model fallback waterfall...");
 
-      // 2. Stream from FastAPI (using dynamic env var for deployment)
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      // 2. Stream from FastAPI (relative in production/Docker, localhost:8000 in dev)
+      const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "http://localhost:8000" : "");
       const res = await fetch(`${API_BASE}/api/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
