@@ -48,6 +48,10 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
         if (e.touches.length > 0) handleMove(e.touches[0].clientX);
     };
 
+    const imgAspect = image && image.naturalWidth && image.naturalHeight 
+        ? image.naturalWidth / image.naturalHeight 
+        : 1;
+
     return (
         <div
             onMouseMove={handleMouseMove}
@@ -68,6 +72,7 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                 minHeight: "500px",
                 height: "65vh",
                 padding: "16px",
+                boxSizing: "border-box",
             }}
         >
             {image ? (
@@ -76,8 +81,10 @@ export const SplitCompareViewer: React.FC<SplitCompareViewerProps> = ({
                     ref={mediaRef}
                     style={{
                         position: "relative",
-                        display: "inline-block",
-                        lineHeight: 0,
+                        width: "100%",
+                        maxWidth: `min(100%, calc((max(65vh, 500px) - 32px) * ${imgAspect}))`,
+                        maxHeight: "calc(max(65vh, 500px) - 32px)",
+                        aspectRatio: `${image.naturalWidth} / ${image.naturalHeight}`,
                         borderRadius: "8px",
                         overflow: "hidden",
                         boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)",

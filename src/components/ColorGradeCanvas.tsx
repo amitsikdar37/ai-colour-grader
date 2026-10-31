@@ -132,9 +132,11 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
     useEffect(() => {
         const gl = glRef.current;
         const program = programRef.current;
-        if (!gl || !program || !image) return;
+        const canvas = canvasRef.current;
+        if (!gl || !program || !canvas || !image) return;
 
         gl.useProgram(program);
+        gl.viewport(0, 0, canvas.width, canvas.height);
 
         const u = uniforms || DEFAULT_UNIFORMS;
 
@@ -155,11 +157,9 @@ export const ColorGradeCanvas: React.FC<ColorGradeCanvasProps> = ({
         <canvas
             ref={canvasRef}
             style={{
+                width: "100%",
+                height: "100%",
                 display: "block",
-                maxWidth: "100%",
-                maxHeight: "65vh",
-                width: "auto",
-                height: "auto",
             }}
         />
     );
