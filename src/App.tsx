@@ -1,11 +1,15 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { DropZone } from "./components/DropZone";
 import { SplitCompareViewer } from "./components/SplitCompareViewer";
 import { ApiKeyModal } from "./components/ApiKeyModal";
+import { ServerWarmupModal } from "./components/ServerWarmupModal";
 import { prepareAndAnalyzeImage, type ImageAnalysisResult } from "./utils/imageAnalysis";
 import { DEFAULT_UNIFORMS, type ColorProfile, type ColorProfileUniforms } from "./types/color";
 import { sanitizeUniforms } from "./utils/clampUniforms";
 import { exportHighResImage } from "./utils/exportImage";
+
+const RAW_API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
+export const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 
 export const App: React.FC = () => {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -17,6 +21,10 @@ export const App: React.FC = () => {
   const [loadingMsg, setLoadingMsg] = useState<string>("Connecting to Gemini...");
   const [loadingSubMsg, setLoadingSubMsg] = useState<string>("Preparing stream...");
   const [modelUsed, setModelUsed] = useState<string | null>(null);
+
+  // Render Free Tier Backend Health & Cold-Start Warmup Tracking
+  const [isServerReady, setIsServerReady] = useState<boolean>(false);
+  const [isWarmupModalOpen, setIsWarmupModalOpen] = useState<boolean>(false);
 
   // AI Looks State
   const [profiles, setProfiles] = useState<ColorProfile[]>([]);
@@ -33,6 +41,55 @@ export const App: React.FC = () => {
     return !savedKey && !dismissed;
   });
 
+  // Check if Render Cloud Backend is awake on initial page load
+  useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1800); // 1.8s instant check threshold
+
+    fetch(`${API_BASE}/api/health`, { signal: controller.signal, cache: "no-store" })
+      .then((res) => {
+        clearTimeout(timeoutId);
+        if (res.ok) return res.json();
+        throw new Error("Server sleeping");
+      })
+      .then((data) => {
+        if (!isMounted) return;
+        if (data && data.status === "online") {
+          setIsServerReady(true);
+        } else {
+          throw new Error("Invalid health response");
+        }
+      })
+      .catch(() => {
+        clearTimeout(timeoutId);
+        if (!isMounted) return;
+        // Backend is sleeping on Render's free tier! Open warmup modal.
+        setIsServerReady(false);
+        setIsWarmupModalOpen(true);
+      });
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, []);
+
+  const handleServerWoken = () => {
+    setIsWarmupModalOpen(false);
+    setIsServerReady(true);
+    // If an image was already waiting to be graded, trigger grading!
+    if (rawImageSrc) {
+      runGradingStream(rawImageSrc, apiKey);
+    }
+  };
+
+  const handleBypassWarmup = () => {
+    setIsWarmupModalOpen(false);
+    setIsServerReady(true);
+  };
+
   const runGradingStream = async (base64Payload: string, activeKey: string) => {
     setIsAnalyzing(true);
     setLoadingMsg("Connecting to Gemini Gateway...");
@@ -40,7 +97,6 @@ export const App: React.FC = () => {
 
     try {
       // 2. Stream from FastAPI (relative in production/Docker, localhost:8000 in dev)
-      const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
       const res = await fetch(`${API_BASE}/api/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,8 +106,17 @@ export const App: React.FC = () => {
         }),
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // If 502 / 503 / 504: Render free tier instance went to sleep!
+        if ([502, 503, 504].includes(res.status)) {
+          setIsServerReady(false);
+          setIsWarmupModalOpen(true);
+          return;
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
 
+      setIsServerReady(true);
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       if (!reader) throw new Error("Stream reader not supported");
@@ -107,9 +172,15 @@ export const App: React.FC = () => {
           processLine(line);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Grading failed:", err);
-      alert("AI grading error. Check backend connection.");
+      if (err.name === "TypeError" && (err.message || "").includes("fetch")) {
+        // Render server went to sleep or connection was dropped
+        setIsServerReady(false);
+        setIsWarmupModalOpen(true);
+      } else {
+        alert("AI grading error. Check backend connection.");
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -229,6 +300,31 @@ export const App: React.FC = () => {
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {/* Render Cloud Backend Health Indicator */}
+          <button
+            onClick={() => {
+              if (!isServerReady) setIsWarmupModalOpen(true);
+            }}
+            style={{
+              backgroundColor: isServerReady ? "rgba(16, 185, 129, 0.12)" : "rgba(245, 158, 11, 0.12)",
+              border: `1px solid ${isServerReady ? "rgba(16, 185, 129, 0.4)" : "rgba(245, 158, 11, 0.4)"}`,
+              color: isServerReady ? "#34d399" : "#fbbf24",
+              padding: "6px 14px",
+              borderRadius: "20px",
+              fontSize: "12px",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              cursor: isServerReady ? "default" : "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title={isServerReady ? "Render Cloud Engine is Online & Ready" : "Server is Asleep / Warming Up · Click to Check"}
+          >
+            <span>{isServerReady ? "🟢" : "⏳"}</span>
+            <span>{isServerReady ? "Backend Online" : "Waking Server..."}</span>
+          </button>
+
           {modelUsed && (
             <div style={{ backgroundColor: "#1e293b", padding: "4px 12px", borderRadius: "20px", border: "1px solid #38bdf8", fontSize: "12px", color: "#38bdf8" }}>
               ⚡ Graded by: <strong>{modelUsed}</strong>
@@ -705,6 +801,14 @@ export const App: React.FC = () => {
         currentKey={apiKey}
         onSaveKey={handleSaveApiKey}
         onUsePresets={handleUsePresets}
+      />
+
+      {/* Render Free Tier Server Warmup Screen */}
+      <ServerWarmupModal
+        isOpen={isWarmupModalOpen}
+        apiBase={API_BASE}
+        onServerReady={handleServerWoken}
+        onBypassOffline={handleBypassWarmup}
       />
     </div>
   );
